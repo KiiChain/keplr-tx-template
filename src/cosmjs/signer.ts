@@ -1,4 +1,4 @@
-import { SigningStargateClient } from "@cosmjs/stargate";
+import { SigningStargateClient, type Account } from "@cosmjs/stargate";
 import {
   type Coin,
   type EncodeObject,
@@ -11,20 +11,9 @@ import { makeAuthInfoBytes, makeSignDoc } from "@cosmjs/proto-signing";
 import { Any } from "cosmjs-types/google/protobuf/any";
 import { TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
-import { LCD_ENDPOINT } from "../constants";
-
-// This function retrieves the account info from the LCD endpoint
-// This is necessary since CosmJs can't decode the ethsecp256k1 pubkey format
-async function getAccountInfo(address: string) {
-  const res = await fetch(`${LCD_ENDPOINT}/cosmos/auth/v1beta1/accounts/${address}`);
-  const data = await res.json();
-
-  const baseAccount = data.account;
-  return {
-    accountNumber: Number(baseAccount.account_number),
-    sequence: Number(baseAccount.sequence),
-  };
-}
+import {
+  BaseAccount,
+} from "cosmjs-types/cosmos/auth/v1beta1/auth";
 
 // This function signs a transaction using the ethsecp256k1 signer
 // The most important part is that it rewrites the PubKey to the ethsecp256k1 format
@@ -39,9 +28,7 @@ export async function signWithEthsecpSigner(
   memo: string
 ) {
   // Get the account data from the client
-  const accountData = await getAccountInfo(signerAddress);
-
-  console.log("Account Data:", accountData);
+  const accountData = await client.getAccount(signerAddress);
 
   // If the data is null the account does not exist
   if (!accountData) {
@@ -67,8 +54,8 @@ export async function signWithEthsecpSigner(
   // The typeUrl is set to the ethsecp256k1 PubKey type
   // and the value is set to the encoded PubKey with the pubkeyBytes
   // This is necessary for the transaction to be signed correctly
-  const pubk = Any.fromPartial({
-    typeUrl: "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey",
+  const pubkey = Any.fromPartial({
+    typeUrl: PubKey.typeUrl,
     value: PubKey.encode({
       key: pubkeyBytes,
     }).finish(),
@@ -86,7 +73,7 @@ export async function signWithEthsecpSigner(
   // Encode the tx and make the auth info bytes
   const txBodyBytes = client.registry.encode(txBodyEncodeObject);
   const authInfoBytes = makeAuthInfoBytes(
-    [{ pubkey: pubk, sequence: accountData!.sequence }],
+    [{ pubkey: pubkey, sequence: accountData!.sequence }],
     [fee],
     gasLimit,
     undefined,
@@ -108,4 +95,31 @@ export async function signWithEthsecpSigner(
     authInfoBytes: signed.authInfoBytes,
     signatures: [fromBase64(signature.signature)],
   }).finish();
+}
+
+// customAccountParser is a function that parses the account from the Any type
+// and handles the ethsecp256k1 PubKey type
+export function customAccountParser(accountAny: Any): Account {
+  // Check if the accountAny is of type BaseAccount or EthAccount
+  if (
+    accountAny.typeUrl === "/cosmos.auth.v1beta1.BaseAccount" ||
+    accountAny.typeUrl === "/ethermint.types.v1.EthAccount" // handle EthAccount too
+  ) {
+    // Decode the BaseAccount from the Any type
+    const account = BaseAccount.decode(accountAny.value);
+
+    // Here we patch the public key parser
+    if (
+      account.pubKey?.typeUrl === "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey"
+    ) {
+      // Decode the PubKey from the Any type
+      account.pubKey.value = PubKey.decode(account.pubKey.value).key;
+    }
+
+    // Return the account as an Account type
+    return account as unknown as Account;
+  }
+
+  // If the accountAny is not of type BaseAccount or EthAccount, throw an error
+  throw new Error(`Unknown account type: ${accountAny.typeUrl}`);
 }

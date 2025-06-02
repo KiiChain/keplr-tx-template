@@ -2,9 +2,13 @@ import { useState } from "react";
 import { SigningStargateClient } from "@cosmjs/stargate";
 import { type Coin, type EncodeObject } from "@cosmjs/proto-signing";
 import { MsgSend } from "@kiichain/kiijs-proto/dist/cosmos/bank/v1beta1/tx";
-
-import { signWithEthsecpSigner } from "./cosmjs/signer";
-import { CHAIN_ID, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
+import {
+  Registry,
+  type GeneratedType,
+} from "@cosmjs/proto-signing";
+import { customAccountParser, signWithEthsecpSigner } from "./cosmjs/signer";
+import { CHAIN_ID, ETH_PUBKEY, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
+import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
 
 function App() {
   // State to hold the wallet address
@@ -73,9 +77,14 @@ function App() {
       setWalletAddress(address);
 
       // Start the client connection
+      // The stargate client must use the custom account parser
+      // This is necessary to handle the ethsecp256k1 PubKey format
       const client = await SigningStargateClient.connectWithSigner(
         RPC_ENDPOINT,
-        offlineSigner
+        offlineSigner,
+        {
+          accountParser: customAccountParser,
+        },
       );
 
       // Encode the MsgSend transaction
