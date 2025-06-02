@@ -2,7 +2,7 @@ import { useState } from "react";
 import { SigningStargateClient } from "@cosmjs/stargate";
 import { type Coin, type EncodeObject } from "@cosmjs/proto-signing";
 import { MsgSend } from "@kiichain/kiijs-proto/dist/cosmos/bank/v1beta1/tx";
-import { customAccountParser, signWithEthsecpSigner } from "./cosmjs/signer";
+import { customAccountParser as ethsecpAccountParser, signWithEthsecpSigner } from "./cosmjs/signer";
 import { CHAIN_ID, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
 
 function App() {
@@ -72,7 +72,7 @@ function App() {
         RPC_ENDPOINT,
         offlineSigner,
         {
-          accountParser: customAccountParser,
+          accountParser: ethsecpAccountParser,
         },
       );
 

@@ -12,11 +12,55 @@ Signature can be found at:
 
 - [cosmjs](./src/cosmjs/ethsecp256k1.ts)
 
+## Signing Transactions with `ethsecp256k1`
+
+This is what is need to sign a transaction with `ethsecp256k1`.
+
+1. Create the `SigningStargateClient` with the correct type
+
+```typescript
+// Start the client connection
+// The stargate client must use the custom account parser
+// This is necessary to handle the ethsecp256k1 PubKey format
+const client = await SigningStargateClient.connectWithSigner(
+  RPC_ENDPOINT,
+  offlineSigner,
+  {
+    accountParser: ethsecpAccountParser,
+  }
+);
+```
+
+The signing client must use a custom account parser to handle the `ethsecp256k1` public key format. This is crucial for correctly signing transactions.
+
+2. Sign the transaction with a custom pubkey
+
+```typescript
+// This is the important bit
+// This signs the transaction using the ethsecp256k1 signer
+// It basically rewrite the Pubkey to the ethsecp256k1 format
+const txRaw = await signWithEthsecpSigner(
+  client,
+  offlineSigner,
+  CHAIN_ID,
+  address,
+  [msgSend],
+  "This is a sample transaction memo",
+  KEPLR_CHAIN_INFO.feeCurrencies[0].gasPriceStep.high,
+  1.5
+);
+```
+
+3. Broadcast the signed transaction
+
+```typescript
+const receipt = await client.broadcastTx(txRaw);
+```
+
 ## Prerequisites
 
 - Node.js (v16 or higher recommended)
-- Keplr wallet installed in your browser
-- Basic understanding of blockchain and Kiichain
+- KiiJs library installeds
 
 ## Installation
 
