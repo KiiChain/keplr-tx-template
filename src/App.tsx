@@ -1,301 +1,122 @@
 import { useState } from "react";
-import { SigningCosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import { SigningStargateClient } from "@cosmjs/stargate";
-import {
-  Registry,
-  type Coin,
-  type EncodeObject,
-  type GeneratedType,
-  type OfflineSigner,
-} from "@cosmjs/proto-signing";
+import { type Coin, type EncodeObject } from "@cosmjs/proto-signing";
 import { MsgSend } from "@kiichain/kiijs-proto/dist/cosmos/bank/v1beta1/tx";
-
-import { fromBase64 } from "@cosmjs/encoding";
-import { makeAuthInfoBytes, makeSignDoc } from "@cosmjs/proto-signing";
-
-import { Any } from "cosmjs-types/google/protobuf/any";
-import { TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
-import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
-
-const chainInfo = {
-  chainId: "oro_1336-1",
-  chainName: "Oro Chain",
-  rpc: "https://rpc.uno.sentry.testnet.v3.kiivalidator.com",
-  rest: "https://lcd.uno.sentry.testnet.v3.kiivalidator.com",
-  bip44: {
-    coinType: 60,
-  },
-  bech32Config: {
-    bech32PrefixAccAddr: "kii",
-    bech32PrefixAccPub: "kiipub",
-    bech32PrefixValAddr: "kiivaloper",
-    bech32PrefixValPub: "kiivaloperpub",
-    bech32PrefixConsAddr: "kiivalcons",
-    bech32PrefixConsPub: "kiivalconspub",
-  },
-  currencies: [
-    {
-      coinDenom: "AKII",
-      coinMinimalDenom: "akii",
-      coinDecimals: 18,
-      coinGeckoId: "kiichain",
-    },
-  ],
-  feeCurrencies: [
-    {
-      coinDenom: "AKII",
-      coinMinimalDenom: "akii",
-      coinDecimals: 18,
-      coinGeckoId: "kiichain",
-    },
-  ],
-  stakeCurrency: {
-    coinDenom: "AKII",
-    coinMinimalDenom: "akii",
-    coinDecimals: 18,
-    coinGeckoId: "kiichain",
-  },
-  features: ["ethsecp256k1", "stargate", "ibc-transfer", "ibc-go"],
-  gasPriceStep: {
-    low: 0.01,
-    average: 0.025,
-    high: 0.04,
-  },
-};
-
-async function registerAndConnect() {
-  if (!window.keplr) {
-    alert("Keplr not installed");
-    return null;
-  }
-
-  try {
-    // Registramos la chain personalizada en Keplr (solo local, no en el chain registry global)
-    await window.keplr.experimentalSuggestChain(chainInfo);
-
-    // Habilitamos la chain para usarla
-    await window.keplr.enable(chainInfo.chainId);
-
-    // Obtenemos el offline signer con la configuración nueva
-    const offlineSigner = await window.getOfflineSignerAuto(chainInfo.chainId);
-
-    // Obtenemos las cuentas del signer
-    const accounts = await offlineSigner.getAccounts();
-
-    console.log(
-      "Conectado a chain personalizada con address:",
-      accounts[0].address
-    );
-    console.log("Algoritmo clave:", accounts[0].algo);
-
-    return { offlineSigner, address: accounts[0].address };
-  } catch (error) {
-    console.error("Error al registrar o conectar a la chain:", error);
-    return null;
-  }
-}
-
-const chainId = "oro_1336-1";
-const rpcEndpoint = "https://rpc.uno.sentry.testnet.v3.kiivalidator.com";
-const contractAddress =
-  "kii1afxj87jjd4usd80gsprtq76uykv02egaydwvj62ldhngzj2zdamqnxmadv";
+import { customAccountParser as ethsecpAccountParser, signWithEthsecpSigner } from "./cosmjs/signer";
+import { CHAIN_ID, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
 
 function App() {
+  // State to hold the wallet address
   const [walletAddress, setWalletAddress] = useState<string>("");
+  const [connected, setConnected] = useState<boolean>(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txError, setTxError] = useState<string | null>(null);
 
-  // ************************** TX GENERATION
+  // Hardcoded amount to send
+  const amount: Coin[] = [
+    {
+      amount: "100000000000000000",
+      denom: "akii",
+    },
+  ];
 
-  const connectWallet = async () => {
-    const ethPubKeyTypeUrl = "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey";
-    const registry = new Registry([
-      [ethPubKeyTypeUrl, PubKey as GeneratedType],
-      ["/cosmos.bank.v1beta1.MsgSend", MsgSend as unknown as GeneratedType],
-    ]);
-
-    const sendCustomMsg = async () => {
-      const wallet = await registerAndConnect();
-      if (!wallet) return;
-
-      const { offlineSigner, address } = wallet;
-
-      const client = await SigningStargateClient.connectWithSigner(
-        rpcEndpoint,
-        offlineSigner,
-        { registry }
-      );
-
-      const msg = {
-        fromAddress: address,
-        toAddress: "kii174hsj0ax02rvuf2fw52vu0080epdx6844c79xj",
-        amount: [
-          {
-            denom: "akii",
-            amount: "100000000000",
-          },
-        ],
-      };
-
-      const fee = {
-        amount: [{ denom: "akii", amount: "12000000000" }],
-        gas: "300000",
-      };
-
-      const codedMsg = MsgSend.encode(msg).finish();
-
-      const result = await client.signAndBroadcast(address, [codedMsg], fee);
-
-      if (result.code !== 0) {
-        throw new Error(`Tx failed with code ${result.code}: ${result.rawLog}`);
-      }
-      console.log("Tx enviada correctamente:", result.transactionHash);
-    };
+  // Connect wallet with Keplr
+  async function connectWallet() {
+    if (!window.keplr || !window.getOfflineSignerAuto) {
+      alert("Keplr extension is not installed.");
+      return;
+    }
 
     try {
-      await window.keplr.experimentalSuggestChain(chainInfo);
-      await window.keplr.enable(chainInfo.chainId);
+      await window.keplr.experimentalSuggestChain(KEPLR_CHAIN_INFO);
+      const offlineSigner = await window.getOfflineSignerAuto(CHAIN_ID);
+      const accounts = await offlineSigner.getAccounts();
+      setWalletAddress(accounts[0].address);
+      setConnected(true);
+    } catch (error) {
+      console.error("Error connecting wallet:", error);
+    }
+  }
 
-      const offlineSigner = await window.getOfflineSignerAuto(
-        chainInfo.chainId
-      );
+  // Disconnect wallet (simply clear state)
+  function disconnectWallet() {
+    setWalletAddress("");
+    setConnected(false);
+  }
+
+  // Send a amount of tokens using the Cosmos EVM ethsecp256k1 signer
+  async function sendTokens(toAddress: string, amount: Coin[]) {
+    setTxHash(null);
+    setTxError(null);
+
+    try {
+      // Start the connection process
+      await window.keplr.enable(CHAIN_ID);
+      if (!window.getOfflineSignerAuto) {
+        throw new Error(
+          "getOfflineSignerAuto is not available on the window object."
+        );
+      }
+      // Extract the offline signer from the window object
+      const offlineSigner = await window.getOfflineSignerAuto(CHAIN_ID);
       const accounts = await offlineSigner.getAccounts();
 
-      setWalletAddress(accounts[0].address);
+      // Get and set the wallet address
+      const address = accounts[0].address;
+      setWalletAddress(address);
 
-      return await sendCustomMsg();
-    } catch (offlineSignererr) {
-      console.error("Error al conectar:", offlineSignererr);
-      return null;
-    }
-  };
-
-  // *****************************
-  async function testSign() {
-    const wallet = await registerAndConnect();
-    if (!wallet) return;
-
-    const { offlineSigner } = wallet;
-
-    const client = await SigningStargateClient.connectWithSigner(
-      rpcEndpoint,
-      offlineSigner
-    );
-
-    const msgSend: EncodeObject = {
-      typeUrl: "/cosmos.bank.v1beta1.MsgSend",
-      value: MsgSend.fromPartial({
-        fromAddress: wallet.address,
-        toAddress: "kii1qvulcqneyp2r2pf2xcxgj8l0cv6gu2mjkan37c", // Replace with actual recipient address
-        amount: [
-          {
-            amount: "1000000000000000000",
-            denom: "akii",
-          },
-        ],
-      }),
-    };
-
-    const fee = {
-      denom: "akii",
-      amount: "12000000000",
-    };
-
-    const txRaw = await sign(
-      client,
-      offlineSigner,
-      chainId,
-      wallet.address,
-      [msgSend],
-      fee,
-      "Test"
-    );
-
-    // Broadcast
-    const receipt = await client.broadcastTx(txRaw);
-    console.log("Receipt:", receipt);
-  }
-
-  async function sign(
-    client: SigningStargateClient,
-    signer: OfflineSigner,
-    chainId: string,
-    signerAddress: string,
-    messages: EncodeObject[],
-    fee: Coin,
-    memo: string
-  ) {
-    const accountData = await client.getAccount(signerAddress);
-    const accountFromSigner = (await signer.getAccounts()).find(
-      (account) => account.address === signerAddress
-    );
-    if (!accountFromSigner) {
-      throw new Error("Failed to retrieve account from signer");
-    }
-    const pubkeyBytes = accountFromSigner.pubkey;
-
-    const pubk = Any.fromPartial({
-      typeUrl: "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey",
-      value: PubKey.encode({
-        key: pubkeyBytes,
-      }).finish(),
-    });
-
-    const txBodyEncodeObject = {
-      typeUrl: "/cosmos.tx.v1beta1.TxBody",
-      value: {
-        messages: messages,
-        memo: memo,
-      },
-    };
-    const txBodyBytes = client.registry.encode(txBodyEncodeObject);
-    const gasLimit = 10000000;
-    const authInfoBytes = makeAuthInfoBytes(
-      [{ pubkey: pubk, sequence: accountData!.sequence }],
-      [fee],
-      gasLimit,
-      undefined,
-      signerAddress
-    );
-    const signDoc = makeSignDoc(
-      txBodyBytes,
-      authInfoBytes,
-      chainId,
-      accountData!.accountNumber
-    );
-    const { signature, signed } = await signer.signDirect(
-      signerAddress,
-      signDoc
-    );
-
-    // returns txBytes for broadcast
-    return TxRaw.encode({
-      bodyBytes: signed.bodyBytes,
-      authInfoBytes: signed.authInfoBytes,
-      signatures: [fromBase64(signature.signature)],
-    }).finish();
-  }
-
-  const executeContract = async () => {
-    try {
-      const { offlineSigner, address } = await connectWallet();
-      const client = await SigningCosmWasmClient.connectWithSigner(
-        rpcEndpoint,
-        offlineSigner
+      // Start the client connection
+      // The stargate client must use the custom account parser
+      // This is necessary to handle the ethsecp256k1 PubKey format in queries
+      const client = await SigningStargateClient.connectWithSigner(
+        RPC_ENDPOINT,
+        offlineSigner,
+        {
+          accountParser: ethsecpAccountParser,
+        },
       );
 
-      const msg = "inc";
-      const fee = {
-        amount: [{ denom: "akii", amount: "12000000000000000" }],
-        gas: "300000",
+      // Encode the MsgSend transaction
+      // This can be any transaction type, here we use MsgSend as an example
+      const msgSend: EncodeObject = {
+        typeUrl: "/cosmos.bank.v1beta1.MsgSend",
+        value: MsgSend.fromPartial({
+          fromAddress: address,
+          toAddress: toAddress,
+          amount,
+        }),
       };
 
-      const result = await client.execute(address, contractAddress, msg, fee);
-      console.log("Contract executed:", result);
-    } catch (err) {
-      console.error("Error executing contract", err);
-    }
-  };
+      // This is the important bit
+      // This signs the transaction using the ethsecp256k1 signer
+      // It basically rewrite the Pubkey to the ethsecp256k1 format
+      const txRaw = await signWithEthsecpSigner(
+        client,
+        offlineSigner,
+        CHAIN_ID,
+        address,
+        [msgSend],
+        "This is a sample transaction memo",
+        KEPLR_CHAIN_INFO.feeCurrencies[0].gasPriceStep.high,
+        1.5,
+      );
 
-  // ****************************************
+      // Broadcast
+      const receipt = await client.broadcastTx(txRaw);
+
+      // Check if the transaction was successful
+      if (receipt.code !== 0) {
+        console.error("Tx failed", receipt.rawLog);
+        setTxError(receipt.transactionHash);
+      } else {
+        console.log("Tx successful", receipt.transactionHash);
+        setTxHash(receipt.transactionHash);
+      }
+    } catch (error: any) {
+      console.error("Transaction error:", error);
+      setTxError(error.message || "An unknown error occurred");
+    }
+  }
 
   return (
     <div
@@ -305,16 +126,40 @@ function App() {
         alignItems: "center",
         justifyContent: "center",
         height: "100vh",
+        width: "100vw",
+        margin: 0,
+        padding: 0,
         gap: "20px",
+        textAlign: "center",
       }}
     >
-      <h2>Dirección: {walletAddress || "Not connected"}</h2>
-      <button onClick={testSign} style={{ padding: "10px 20px" }}>
-        Enviar Tokens
-      </button>
-      <button onClick={executeContract} style={{ padding: "10px 20px" }}>
-        Ejecutar Smart Contract
-      </button>
+      <h2>Address: {walletAddress || "Not connected"}</h2>
+      <h3>This will send 0.1 Kii to a sample address</h3>
+
+      {!connected ? (
+        <button onClick={connectWallet} style={{ padding: "10px 20px" }}>
+          Connect Keplr
+        </button>
+      ) : (
+        <>
+          <button
+            onClick={() =>
+              sendTokens(
+                "kii1cstu4xay7asqar23nr78jcx5nmdx3n70rn0qfg",
+                amount,
+              )
+            }
+            style={{ padding: "10px 20px" }}
+          >
+            Send Tokens
+          </button>
+          <button onClick={disconnectWallet} style={{ padding: "10px 20px" }}>
+            Disconnect
+          </button>
+        </>
+      )}
+      {txHash && <p style={{ color: "green" }}>Transaction Hash: {txHash}</p>}
+      {txError && <p style={{ color: "red" }}>Error: {txError}</p>}
     </div>
   );
 }
