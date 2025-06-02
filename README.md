@@ -85,6 +85,6 @@ npm install
 npm run dev
 ```
 
-2. Open your browser and connect your Keplr wallet.
+2. Open your browser on the displayed localhost and connect your Keplr wallet.
 
 3. Follow the instructions in the app to sign and send transactions using `ethsecp256k1`.
