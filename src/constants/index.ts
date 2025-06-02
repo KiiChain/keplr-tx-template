@@ -1,7 +1,6 @@
 export const CHAIN_ID = "oro_1336-1";
 export const ETH_PUBKEY = "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey";
 export const RPC_ENDPOINT = "https://rpc.uno.sentry.testnet.v3.kiivalidator.com";
-export const LCD_ENDPOINT = "https://lcd.uno.sentry.testnet.v3.kiivalidator.com";
 
 // This is the chain info for the Kii Testnet Oro chain
 // Source can be found at:

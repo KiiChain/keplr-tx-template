@@ -11,9 +11,7 @@ import { makeAuthInfoBytes, makeSignDoc } from "@cosmjs/proto-signing";
 import { Any } from "cosmjs-types/google/protobuf/any";
 import { TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
 import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
-import {
-  BaseAccount,
-} from "cosmjs-types/cosmos/auth/v1beta1/auth";
+import { BaseAccount } from "cosmjs-types/cosmos/auth/v1beta1/auth";
 
 // This function signs a transaction using the ethsecp256k1 signer
 // The most important part is that it rewrites the PubKey to the ethsecp256k1 format
@@ -23,9 +21,9 @@ export async function signWithEthsecpSigner(
   chainId: string,
   signerAddress: string,
   messages: EncodeObject[],
-  fee: Coin,
-  gasLimit: number,
-  memo: string
+  memo: string,
+  gasPricePerUnit: number,
+  gasAdjustment: number
 ) {
   // Get the account data from the client
   const accountData = await client.getAccount(signerAddress);
@@ -72,6 +70,18 @@ export async function signWithEthsecpSigner(
 
   // Encode the tx and make the auth info bytes
   const txBodyBytes = client.registry.encode(txBodyEncodeObject);
+
+  // Estimate gas limits
+  const simulatedGas = await client.simulate(signerAddress, messages, memo);
+  const gasLimit = Math.ceil(simulatedGas * gasAdjustment);
+
+  // Calculate the fee amount
+  const feeAmount = Math.ceil(gasLimit * gasPricePerUnit).toString();
+  const fee: Coin = {
+    denom: "akii",
+    amount: feeAmount,
+  };
+
   const authInfoBytes = makeAuthInfoBytes(
     [{ pubkey: pubkey, sequence: accountData!.sequence }],
     [fee],

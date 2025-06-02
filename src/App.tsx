@@ -2,13 +2,8 @@ import { useState } from "react";
 import { SigningStargateClient } from "@cosmjs/stargate";
 import { type Coin, type EncodeObject } from "@cosmjs/proto-signing";
 import { MsgSend } from "@kiichain/kiijs-proto/dist/cosmos/bank/v1beta1/tx";
-import {
-  Registry,
-  type GeneratedType,
-} from "@cosmjs/proto-signing";
 import { customAccountParser, signWithEthsecpSigner } from "./cosmjs/signer";
-import { CHAIN_ID, ETH_PUBKEY, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
-import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
+import { CHAIN_ID, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
 
 function App() {
   // State to hold the wallet address
@@ -16,12 +11,6 @@ function App() {
   const [connected, setConnected] = useState<boolean>(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
-
-  // Hardcoded coin fee amount on the transactions
-  const fee: Coin = {
-    denom: "akii",
-    amount: "12000000000",
-  };
 
   // Hardcoded amount to send
   const amount: Coin[] = [
@@ -56,7 +45,7 @@ function App() {
   }
 
   // Send a amount of tokens using the Cosmos EVM ethsecp256k1 signer
-  async function sendTokens(toAddress: string, amount: Coin[], fee: Coin) {
+  async function sendTokens(toAddress: string, amount: Coin[]) {
     setTxHash(null);
     setTxError(null);
 
@@ -107,9 +96,9 @@ function App() {
         CHAIN_ID,
         address,
         [msgSend],
-        fee,
-        10000000,
-        "This is a sample transaction memo"
+        "This is a sample transaction memo",
+        KEPLR_CHAIN_INFO.feeCurrencies[0].gasPriceStep.high,
+        1.5,
       );
 
       // Broadcast
@@ -158,7 +147,6 @@ function App() {
               sendTokens(
                 "kii1cstu4xay7asqar23nr78jcx5nmdx3n70rn0qfg",
                 amount,
-                fee
               )
             }
             style={{ padding: "10px 20px" }}
