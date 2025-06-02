@@ -1,146 +1,123 @@
 import { useState } from "react";
 import { SigningStargateClient } from "@cosmjs/stargate";
-import {
-  type Coin,
-  type EncodeObject,
-  type OfflineSigner,
-} from "@cosmjs/proto-signing";
+import { type Coin, type EncodeObject } from "@cosmjs/proto-signing";
 import { MsgSend } from "@kiichain/kiijs-proto/dist/cosmos/bank/v1beta1/tx";
 
-import { fromBase64 } from "@cosmjs/encoding";
-import { makeAuthInfoBytes, makeSignDoc } from "@cosmjs/proto-signing";
-
-import { Any } from "cosmjs-types/google/protobuf/any";
-import { TxRaw } from "cosmjs-types/cosmos/tx/v1beta1/tx";
-import { PubKey } from "@kiichain/kiijs-proto/dist/cosmos/evm/crypto/v1/ethsecp256k1/keys";
-
-const chainId = "oro_1336-1";
-const rpcEndpoint = "https://rpc.uno.sentry.testnet.v3.kiivalidator.com";
+import { signWithEthsecpSigner } from "./cosmjs/signer";
+import { CHAIN_ID, KEPLR_CHAIN_INFO, RPC_ENDPOINT } from "./constants";
 
 function App() {
+  // State to hold the wallet address
   const [walletAddress, setWalletAddress] = useState<string>("");
+  const [connected, setConnected] = useState<boolean>(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txError, setTxError] = useState<string | null>(null);
 
+  // Hardcoded coin fee amount on the transactions
   const fee: Coin = {
     denom: "akii",
     amount: "12000000000",
   };
 
+  // Hardcoded amount to send
   const amount: Coin[] = [
     {
-      amount: "1000000000000000000",
+      amount: "100000000000000000",
       denom: "akii",
     },
   ];
 
-  async function sendTokens(toAddress: string, amount: Coin[], fee: Coin) {
-    await window.keplr.enable(chainId);
-    const offlineSigner = await window.getOfflineSignerAuto(chainId);
-    const accounts = await offlineSigner.getAccounts();
-
-    const address = accounts[0].address;
-    setWalletAddress(address);
-
-    const client = await SigningStargateClient.connectWithSigner(
-      rpcEndpoint,
-      offlineSigner
-    );
-
-    const msgSend: EncodeObject = {
-      typeUrl: "/cosmos.bank.v1beta1.MsgSend",
-      value: MsgSend.fromPartial({
-        fromAddress: address,
-        toAddress: toAddress,
-        amount,
-      }),
-    };
-
-    console.log("Client:", client);
-    console.log("Offline:", offlineSigner);
-    console.log("Signer address:", address);
-    console.log("accounts:", await client.getAccount(address));
-
-    const txRaw = await sign(
-      client,
-      offlineSigner,
-      chainId,
-      address,
-      [msgSend],
-      fee,
-      "Test"
-    );
-
-    // Broadcast
-    const receipt = await client.broadcastTx(txRaw);
-
-    if (receipt.code !== 0) {
-      console.error("Tx failed", receipt.rawLog);
+  // Connect wallet with Keplr
+  async function connectWallet() {
+    if (!window.keplr || !window.getOfflineSignerAuto) {
+      alert("Keplr extension is not installed.");
+      return;
     }
 
-    console.log("Receipt:", receipt);
+    try {
+      await window.keplr.experimentalSuggestChain(KEPLR_CHAIN_INFO);
+      const offlineSigner = await window.getOfflineSignerAuto(CHAIN_ID);
+      const accounts = await offlineSigner.getAccounts();
+      setWalletAddress(accounts[0].address);
+      setConnected(true);
+    } catch (error) {
+      console.error("Error connecting wallet:", error);
+    }
   }
 
-  async function sign(
-    client: SigningStargateClient,
-    signer: OfflineSigner,
-    chainId: string,
-    signerAddress: string,
-    messages: EncodeObject[],
-    fee: Coin,
-    memo: string
-  ) {
-    const accountData = await client.getAccount(signerAddress);
-    console.log("Account data:", accountData);
+  // Disconnect wallet (simply clear state)
+  function disconnectWallet() {
+    setWalletAddress("");
+    setConnected(false);
+  }
 
-    const accountFromSigner = (await signer.getAccounts()).find(
-      (account) => account.address === signerAddress
-    );
-    if (!accountFromSigner)
-      throw new Error("Failed to retrieve account from signer");
+  // Send a amount of tokens using the Cosmos EVM ethsecp256k1 signer
+  async function sendTokens(toAddress: string, amount: Coin[], fee: Coin) {
+    setTxHash(null);
+    setTxError(null);
 
-    const pubkeyBytes = accountFromSigner.pubkey;
-    if (!pubkeyBytes || pubkeyBytes.length === 0)
-      throw new Error("Public key not available from signer");
+    try {
+      // Start the connection process
+      await window.keplr.enable(CHAIN_ID);
+      if (!window.getOfflineSignerAuto) {
+        throw new Error(
+          "getOfflineSignerAuto is not available on the window object."
+        );
+      }
+      // Extract the offline signer from the window object
+      const offlineSigner = await window.getOfflineSignerAuto(CHAIN_ID);
+      const accounts = await offlineSigner.getAccounts();
 
-    const pubk = Any.fromPartial({
-      typeUrl: "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey",
-      value: PubKey.encode({
-        key: pubkeyBytes,
-      }).finish(),
-    });
+      // Get and set the wallet address
+      const address = accounts[0].address;
+      setWalletAddress(address);
 
-    const txBodyEncodeObject = {
-      typeUrl: "/cosmos.tx.v1beta1.TxBody",
-      value: {
-        messages: messages,
-        memo: memo,
-      },
-    };
-    const txBodyBytes = client.registry.encode(txBodyEncodeObject);
-    const gasLimit = 10000000;
-    const authInfoBytes = makeAuthInfoBytes(
-      [{ pubkey: pubk, sequence: accountData!.sequence }],
-      [fee],
-      gasLimit,
-      undefined,
-      signerAddress
-    );
-    const signDoc = makeSignDoc(
-      txBodyBytes,
-      authInfoBytes,
-      chainId,
-      accountData!.accountNumber
-    );
-    const { signature, signed } = await signer.signDirect(
-      signerAddress,
-      signDoc
-    );
+      // Start the client connection
+      const client = await SigningStargateClient.connectWithSigner(
+        RPC_ENDPOINT,
+        offlineSigner
+      );
 
-    // returns txBytes for broadcast
-    return TxRaw.encode({
-      bodyBytes: signed.bodyBytes,
-      authInfoBytes: signed.authInfoBytes,
-      signatures: [fromBase64(signature.signature)],
-    }).finish();
+      // Encode the MsgSend transaction
+      // This can be any transaction type, here we use MsgSend as an example
+      const msgSend: EncodeObject = {
+        typeUrl: "/cosmos.bank.v1beta1.MsgSend",
+        value: MsgSend.fromPartial({
+          fromAddress: address,
+          toAddress: toAddress,
+          amount,
+        }),
+      };
+
+      // This is the important bit
+      // This signs the transaction using the ethsecp256k1 signer
+      // It basically rewrite the Pubkey to the ethsecp256k1 format
+      const txRaw = await signWithEthsecpSigner(
+        client,
+        offlineSigner,
+        CHAIN_ID,
+        address,
+        [msgSend],
+        fee,
+        10000000,
+        "This is a sample transaction memo"
+      );
+
+      // Broadcast
+      const receipt = await client.broadcastTx(txRaw);
+
+      // Check if the transaction was successful
+      if (receipt.code !== 0) {
+        console.error("Tx failed", receipt.rawLog);
+        setTxError(receipt.transactionHash);
+      } else {
+        console.log("Tx successful", receipt.transactionHash);
+        setTxHash(receipt.transactionHash);
+      }
+    } catch (error: any) {
+      console.error("Transaction error:", error);
+      setTxError(error.message || "An unknown error occurred");
+    }
   }
 
   return (
@@ -151,18 +128,41 @@ function App() {
         alignItems: "center",
         justifyContent: "center",
         height: "100vh",
+        width: "100vw",
+        margin: 0,
+        padding: 0,
         gap: "20px",
+        textAlign: "center",
       }}
     >
       <h2>Address: {walletAddress || "Not connected"}</h2>
-      <button
-        onClick={() =>
-          sendTokens("kii1cstu4xay7asqar23nr78jcx5nmdx3n70rn0qfg", amount, fee)
-        }
-        style={{ padding: "10px 20px" }}
-      >
-        Send Tokens
-      </button>
+      <h3>This will send 0.1 Kii to a sample address</h3>
+
+      {!connected ? (
+        <button onClick={connectWallet} style={{ padding: "10px 20px" }}>
+          Connect Keplr
+        </button>
+      ) : (
+        <>
+          <button
+            onClick={() =>
+              sendTokens(
+                "kii1cstu4xay7asqar23nr78jcx5nmdx3n70rn0qfg",
+                amount,
+                fee
+              )
+            }
+            style={{ padding: "10px 20px" }}
+          >
+            Send Tokens
+          </button>
+          <button onClick={disconnectWallet} style={{ padding: "10px 20px" }}>
+            Disconnect
+          </button>
+        </>
+      )}
+      {txHash && <p style={{ color: "green" }}>Transaction Hash: {txHash}</p>}
+      {txError && <p style={{ color: "red" }}>Error: {txError}</p>}
     </div>
   );
 }
