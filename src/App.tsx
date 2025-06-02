@@ -98,7 +98,7 @@ function App() {
         [msgSend],
         "This is a sample transaction memo",
         KEPLR_CHAIN_INFO.feeCurrencies[0].gasPriceStep.high,
-        1.5,
+        2,
       );
 
       // Broadcast
