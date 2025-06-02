@@ -14,7 +14,7 @@ Signature can be found at:
 
 ## Signing Transactions with `ethsecp256k1`
 
-This is what is need to sign a transaction with `ethsecp256k1`.
+This is what is needed to sign a transaction with `ethsecp256k1`.
 
 1. Create the `SigningStargateClient` with the correct type
 
@@ -60,7 +60,7 @@ const receipt = await client.broadcastTx(txRaw);
 ## Prerequisites
 
 - Node.js (v16 or higher recommended)
-- KiiJs library installeds
+- KiiJs library installed
 
 ## Installation
 
