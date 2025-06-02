@@ -21,7 +21,7 @@ This is what is need to sign a transaction with `ethsecp256k1`.
 ```typescript
 // Start the client connection
 // The stargate client must use the custom account parser
-// This is necessary to handle the ethsecp256k1 PubKey format
+// This is necessary to handle the ethsecp256k1 PubKey format in queries
 const client = await SigningStargateClient.connectWithSigner(
   RPC_ENDPOINT,
   offlineSigner,
